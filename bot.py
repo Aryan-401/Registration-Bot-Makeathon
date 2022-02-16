@@ -1,15 +1,20 @@
-import exceptions
+import contextlib
+import io
+import os
+import re
+import textwrap
+import time
+import traceback
 
 import discord
 from discord.ext import commands
 from discord.utils import get
-from os import getenv
 from dotenv import load_dotenv
-import os, re, io, time, contextlib, textwrap, traceback
+
+import exceptions
 
 load_dotenv()
 import mongo_db_functions
-
 
 
 class CustomHelpCommand(commands.HelpCommand):
@@ -73,59 +78,63 @@ class CustomHelpCommand(commands.HelpCommand):
         return await super(CustomHelpCommand, self).send_command_help(command)
 
 
+client = commands.Bot(command_prefix=".", case_insensitive=True, help_command=CustomHelpCommand())
 
 
-client = commands.Bot(command_prefix="." , case_insensitive=True, help_command=CustomHelpCommand())
+@client.event
+async def on_ready():
+    await client.change_presence(activity=discord.Activity(type=5, name="MAKE4THON"))
+    print('Bot is ready')
 
-@client.command(pass_context=True, help='Register your team to Make4thon and get exclusive your own channel and VC. Only to be used by Team Leaders')
-async def register(ctx, team_name, *,members):
-    if ctx.channel.id == 942728218505510975: #Channel where registration will take place
-        members_list = [int(re.sub('[^A-Za-z0-9]+', '',x)) for x in members.split()]
+
+@client.command(pass_context=True,
+                help='Register your team to Make4thon and get exclusive your own channel and VC. Only to be used by '
+                     'Team Leaders')
+async def register(ctx, team_name, *, members):
+    if ctx.channel.id == 942728218505510975:  # Channel where registration will take place
+        members_list = [int(re.sub('[^A-Za-z0-9]+', '', x)) for x in members.split()]
         if len(members_list) > 4:
             raise exceptions.TooManyMembers
         guild = ctx.guild
-        mongo_db_functions.add_team(team_name=team_name, leader = ctx.author.id, members= members_list)
-        overwrites = {guild.default_role: discord.PermissionOverwrite(read_messages=False), ctx.author: discord.PermissionOverwrite(read_messages=True), get(guild.roles, id=942775012983717948): discord.PermissionOverwrite(read_messages=True)}
+        mongo_db_functions.add_team(team_name=team_name, leader=ctx.author.id, members=members_list)
+        overwrites = {guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                      ctx.author: discord.PermissionOverwrite(read_messages=True),
+                      get(guild.roles, id=942775012983717948): discord.PermissionOverwrite(read_messages=True)}
         for i in members_list:
             member = guild.get_member(i)
             overwrites[member] = discord.PermissionOverwrite(read_messages=True)
 
-        
-        # category = client.get_channel(942824676076429352)
         category = client.get_channel(942824676076429352)
 
         # Text channel
         channel = await guild.create_text_channel(team_name, overwrites=overwrites, category=category)
         # Voice channel
         vc = await guild.create_voice_channel(team_name, overwrites=overwrites, category=category)
-        mongo_db_functions.add_team(team_name=team_name, leader = ctx.author.id, members= members_list, channel_form= True, channels_list=[channel.id, vc.id])
-        # make sure members can see the VC and Text channel
-        # Upload dataget
+        mongo_db_functions.add_team(team_name=team_name, leader=ctx.author.id, members=members_list, channel_form=True,
+                                    channels_list=[channel.id, vc.id])
 
 
-@client.command(pass_context= True, aliases=['lookup', 'team'], help = 'Look up the members of a team')
+@client.command(pass_context=True, aliases=['lookup', 'team'], help='Look up the members of a team')
 async def team_lookup(ctx, team_name: str):
     team_name = team_name.lower()
-    guild = ctx.guild
     team_data = mongo_db_functions.lookup(team_name=team_name)
     embed = discord.Embed(
-        title= f"Looking for Team **\"{team_name.title()}\"**",
-        colour = discord.Colour.dark_orange(),
+        title=f"Looking for Team **\"{team_name.title()}\"**",
+        colour=discord.Colour.dark_orange(),
     )
 
     leader = await client.fetch_user(team_data['leader'])
-    # leader = leader.display_name
-    members = [await client.fetch_user(id) for id in team_data['members']]
+    members = [await client.fetch_user(id_) for id_ in team_data['members']]
 
-    embed.add_field(name="Team Leader", value= leader)
-    embed.add_field(name="Members", value= ", ".join([m.name for m in members]))
+    embed.add_field(name="Team Leader", value=leader.display_name)
+    embed.add_field(name="Members", value=", ".join([m.name for m in members]))
+
+    await ctx.send(embed=embed)
 
 
-    await ctx.send(embed = embed)
-
-@client.command(pass_context=True, help = 'Add someone new to your team. Only for Team Leaders')
+@client.command(pass_context=True, help='Add someone new to your team. Only for Team Leaders')
 async def add(ctx, member: discord.Member):
-    channel_list = mongo_db_functions.channel_lookup(ctx.author.id) # add member into database
+    channel_list = mongo_db_functions.channel_lookup(ctx.author.id)  # add member into database
     text_channel = client.get_channel(channel_list[0])
     text_perms = text_channel.overwrites_for(member)
     text_perms.read_messages = True
@@ -135,12 +144,12 @@ async def add(ctx, member: discord.Member):
     voice_perms = voice_channel.overwrites_for(member)
     voice_perms.read_messages = True
     await voice_channel.set_permissions(member, overwrite=voice_perms)
-    mongo_db_functions.member_delta(leader = ctx.author.id, member_id = member.id,delta= 1)
+    mongo_db_functions.member_delta(leader=ctx.author.id, member_id=member.id, delta=1)
 
 
-@client.command(pass_context=True, help= 'remove someone from your team. Only for Team Leaders')
+@client.command(pass_context=True, help='Remove someone from your Team. Only for Team Leaders')
 async def remove(ctx, member: discord.Member):
-    channel_list = mongo_db_functions.channel_lookup(ctx.author.id) # remove the guy
+    channel_list = mongo_db_functions.channel_lookup(ctx.author.id)  # remove the guy
     text_channel = client.get_channel(channel_list[0])
     text_perms = text_channel.overwrites_for(member)
     text_perms.read_messages = False
@@ -150,18 +159,27 @@ async def remove(ctx, member: discord.Member):
     voice_perms = voice_channel.overwrites_for(member)
     voice_perms.read_messages = False
     await voice_channel.set_permissions(member, overwrite=voice_perms)
-    mongo_db_functions.member_delta(leader = ctx.author.id, member_id = member.id,delta= -1)
+    mongo_db_functions.member_delta(leader=ctx.author.id, member_id=member.id, delta=-1)
 
-    
 
-@client.command(pass_context=True)
+@client.command(help='Get Bot and Database Latency\nAccess: Everyone')
 async def ping(ctx):
-    await ctx.send("PONG")
+    bot_latency = f"{round(client.latency * 1000, 2)} ms"
+    await ctx.send(
+        embed=discord.Embed(
+            title='You have been Ponged',
+            description=f'Bot Latency: {bot_latency}\nDatabase Latency: {mongo_db_functions.calculate_ping()[0]}\nWrite Latency [MongoDB]: {mongo_db_functions.calculate_ping()[1]}\nRead Latency [MongoDB]: {mongo_db_functions.calculate_ping()[2]}',
+            colour=discord.Colour(0x63e916)
+        )
+    )
 
 
+async def is_worker(ctx):
+    return ctx.author.id in [664401331250921473, 438281883881701391]
 
-@client.command(aliases=['eval'])
-@commands.is_owner()
+
+@client.command(aliases=['eval'], help='Owner Only Command for debugging')
+@commands.check(predicate=is_worker)
 async def code(ctx, *, block):
     code_block = mongo_db_functions.cleancode(block)
 
@@ -198,29 +216,34 @@ async def code(ctx, *, block):
     await ctx.message.add_reaction(react_add)
 
 
+@client.check
+async def globally_block_dms(ctx):
+    return ctx.guild is not None
 
-# @client.event
-# async def on_command_error(ctx, error):
-#     if isinstance(error, commands.CommandNotFound):
-#         return
-#     elif isinstance(error, commands.MissingRequiredArgument):
-#         if len("|".join(ctx.command.aliases)) > 0:
-#             base = f'{"."}[{ctx.command.name}|{"|".join(ctx.command.aliases)}]'
-#         else:
-#             base = f'{"."}[{ctx.command.name}]'
-#         error = f'{str(error)}\nCorrect syntax: ```{base} {ctx.command.signature}```'
-#     else:
-#         if str(error).startswith("Command"):
-#             error = str(error)[29:]
-#         else:
-#             error = str(error)
-#     embed = discord.Embed(
-#         title='Houston we have a problem',
-#         description=error,
-#         colour=discord.Colour(0xE93316)
-#     )
-#     embed.set_footer(text=f'For more information try running {"."}help')
 
-#     await ctx.message.channel.send(embed=embed)
+@client.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    elif isinstance(error, commands.MissingRequiredArgument):
+        if len("|".join(ctx.command.aliases)) > 0:
+            base = f'{"."}[{ctx.command.name}|{"|".join(ctx.command.aliases)}]'
+        else:
+            base = f'{"."}[{ctx.command.name}]'
+        error = f'{str(error)}\nCorrect syntax: ```{base} {ctx.command.signature}```'
+    else:
+        if str(error).startswith("Command"):
+            error = str(error)[29:]
+        else:
+            error = str(error)
+    embed = discord.Embed(
+        title='Houston we have a problem',
+        description=error,
+        colour=discord.Colour(0xE93316)
+    )
+    embed.set_footer(text=f'For more information try running {"."}help')
 
-client.run("TOKEN")
+    await ctx.message.channel.send(embed=embed)
+
+
+client.run(os.getenv("TOKEN"))
