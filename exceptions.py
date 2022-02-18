@@ -2,6 +2,7 @@
 class ErrorCity(Exception):
     """Base class for all Custom Exceptions"""
 
+
 class DuplicateInDatabaseError(ErrorCity):
     def __init__(self, message='The Following Team name is already taken, Please input your own team name and try again'):
         self.message = message
@@ -11,14 +12,13 @@ class DuplicateInDatabaseError(ErrorCity):
         return self.message
 
 
-class BrokenBot(ErrorCity):
-    def __init__(self, custom_hash, message='You broke the bot! Contact an admin ASAP!'):
-        self.custom_hash = custom_hash
+class BrokenRequest(ErrorCity):
+    def __init__(self, message):
         self.message = message
         super().__init__(self.message)
 
     def __str__(self):
-        return f'{self.message} #{self.custom_hash}'
+        return f'{self.message} '
 
 
 class NotInDataBaseError(ErrorCity):

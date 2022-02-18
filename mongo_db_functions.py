@@ -12,41 +12,16 @@ db = cluster["Team_Verification"]
 teams = db["Teams"]
 
 
-def add_team(team_name: str, leader: int, members: list, channel_form=False, channels_list=None):
-    if channels_list is None:
-        channels_list = []
-    if channel_form is False:
-        try:
-            teams.insert_one(
-                {"_id": team_name.lower(), "leader": leader, "members": members, "channels": channels_list})
-        except errors.DuplicateKeyError:
-            raise exceptions.DuplicateInDatabaseError
-    else:
-        teams.update_one({"_id": team_name.lower()}, {"$set": {"channels": channels_list}})
-
-
-def member_delta(leader: int, member_id: int, delta: int = 1):
-    if delta == 1:
-        teams.update_one({"leader": leader}, {"$push": {"members": member_id}})
-    else:
-        teams.update_one({"leader": leader}, {"$pull": {"members": member_id}})
-
-
-def lookup(team_name: str):
-    team_name = team_name.lower()
+def add_team(team_name: str, member_id: int, role_id: int):
     try:
-        team_data = dict(teams.find_one({"_id": team_name}))
-    except TypeError:
-        raise exceptions.NotInDataBaseError
-    if team_data is not None:
-        return {"leader": team_data["leader"], "members": team_data["members"]}
-    else:
-        raise exceptions.NotInDataBaseError
-
-
-def channel_lookup(leader: int):
-    team_info = dict(teams.find_one({"leader": leader}))
-    return team_info['channels']
+        teams.insert_one({"_id": team_name.lower(), "member_id": [member_id], "role_id": role_id})
+        return 1
+    except errors.DuplicateKeyError:
+        if len(teams.find_one({"_id": team_name.lower()})["member_id"]) >= 5:
+            raise exceptions.BrokenRequest(message="This Team is already full. Please Join another team. If you "
+                                                   "believe this is an error, Contact a Moderator")
+        teams.update_one({"_id": team_name.lower()}, {"$push": {"member_id": member_id}})
+        return 0
 
 
 def cleancode(content):

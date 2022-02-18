@@ -1,20 +1,25 @@
+import asyncio
 import contextlib
+import datetime
 import io
 import os
-import re
+import random
+import pandas
 import textwrap
 import time
 import traceback
+from dotenv import load_dotenv
 
 import discord
 from discord.ext import commands
 from discord.utils import get
-from dotenv import load_dotenv
 
 import exceptions
 
 load_dotenv()
 import mongo_db_functions
+
+check_table = pandas.read_csv("entries.csv")
 
 
 class CustomHelpCommand(commands.HelpCommand):
@@ -87,79 +92,97 @@ async def on_ready():
     print('Bot is ready')
 
 
-@client.command(pass_context=True,
-                help='Register your team to Make4thon and get exclusive your own channel and VC. Only to be used by '
-                     'Team Leaders')
-async def register(ctx, team_name, *, members):
-    if ctx.channel.id == 942728218505510975:  # Channel where registration will take place
-        members_list = [int(re.sub('[^A-Za-z0-9]+', '', x)) for x in members.split()]
-        if len(members_list) > 4:
-            raise exceptions.TooManyMembers
-        guild = ctx.guild
-        mongo_db_functions.add_team(team_name=team_name, leader=ctx.author.id, members=members_list)
-        overwrites = {guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                      ctx.author: discord.PermissionOverwrite(read_messages=True),
-                      get(guild.roles, id=942775012983717948): discord.PermissionOverwrite(read_messages=True)}
-        for i in members_list:
-            member = guild.get_member(i)
-            overwrites[member] = discord.PermissionOverwrite(read_messages=True)
-
-        category = client.get_channel(942824676076429352)
-
-        # Text channel
-        channel = await guild.create_text_channel(team_name, overwrites=overwrites, category=category)
-        # Voice channel
-        vc = await guild.create_voice_channel(team_name, overwrites=overwrites, category=category)
-        mongo_db_functions.add_team(team_name=team_name, leader=ctx.author.id, members=members_list, channel_form=True,
-                                    channels_list=[channel.id, vc.id])
+async def is_worker(ctx):
+    return ctx.author.id in [664401331250921473, 438281883881701391]
 
 
-@client.command(pass_context=True, aliases=['lookup', 'team'], help='Look up the members of a team')
-async def team_lookup(ctx, team_name: str):
-    team_name = team_name.lower()
-    team_data = mongo_db_functions.lookup(team_name=team_name)
-    embed = discord.Embed(
-        title=f"Looking for Team **\"{team_name.title()}\"**",
-        colour=discord.Colour.dark_orange(),
-    )
+@client.command(help="Register for Make4thon")
+async def register(ctx, team_name: str, email_address: str):
+    guild = ctx.guild
+    role_register = discord.utils.get(guild.roles, name="Registered")
+    if role_register in ctx.author.roles:
+        raise exceptions.BrokenRequest("You are already registered for a team.")
+    email_address = email_address.lower()
+    try:
+        index_of_person = check_table["email_address"][check_table["email_address"] == email_address].index[0]
+        if check_table.iloc[index_of_person]['team_name'].lower() == team_name.lower():
+            need_role = mongo_db_functions.add_team(team_name=team_name, member_id=ctx.author.id, role_id=0)
+            if need_role == 1:
+                role = await guild.create_role(name=team_name,
+                                               colour=discord.Colour.from_rgb(r=random.randint(0, 255),
+                                                                              g=random.randint(0, 255),
+                                                                              b=random.randint(0, 255)))
+                await ctx.author.add_roles(role)
+                mongo_db_functions.teams.update_one({"_id": team_name.lower()}, {"$set": {'role_id': role.id}})
+                category = get(guild.categories, name='Channels')  # TODO: Change Category name
+                overwrites = {guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                              ctx.author: discord.PermissionOverwrite(read_messages=True),
+                              get(guild.roles, id=942775012983717948): discord.PermissionOverwrite(read_messages=True),  #TODO: Change ID to Coordinator role
+                              role: discord.PermissionOverwrite(read_messages=True)}
+                # Text channel
+                await guild.create_text_channel(team_name, overwrites=overwrites, category=category)
+                # Voice channel
+                await guild.create_voice_channel(team_name, overwrites=overwrites, category=category)
+            else:
+                role = get(guild.roles, name=team_name)
+                await ctx.author.add_roles(role)
 
-    leader = await client.fetch_user(team_data['leader'])
-    members = [await client.fetch_user(id_) for id_ in team_data['members']]
+            await ctx.send(f"You have successfully registered for team {team_name}")
+            await ctx.author.add_roles(role_register)
 
-    embed.add_field(name="Team Leader", value=leader.display_name)
-    embed.add_field(name="Members", value=", ".join([m.name for m in members]))
+        else:
+            raise exceptions.BrokenRequest(
+                message="Your Email Address matches, but team name doesn't. please make sure it is spelt correctly")
 
-    await ctx.send(embed=embed)
-
-
-@client.command(pass_context=True, help='Add someone new to your team. Only for Team Leaders')
-async def add(ctx, member: discord.Member):
-    channel_list = mongo_db_functions.channel_lookup(ctx.author.id)  # add member into database
-    text_channel = client.get_channel(channel_list[0])
-    text_perms = text_channel.overwrites_for(member)
-    text_perms.read_messages = True
-    await text_channel.set_permissions(member, overwrite=text_perms)
-
-    voice_channel = client.get_channel(channel_list[1])
-    voice_perms = voice_channel.overwrites_for(member)
-    voice_perms.read_messages = True
-    await voice_channel.set_permissions(member, overwrite=voice_perms)
-    mongo_db_functions.member_delta(leader=ctx.author.id, member_id=member.id, delta=1)
+    except IndexError:
+        raise exceptions.BrokenRequest(
+            message="Email not found in database. If the issue persists please call an admin")
 
 
-@client.command(pass_context=True, help='Remove someone from your Team. Only for Team Leaders')
-async def remove(ctx, member: discord.Member):
-    channel_list = mongo_db_functions.channel_lookup(ctx.author.id)  # remove the guy
-    text_channel = client.get_channel(channel_list[0])
-    text_perms = text_channel.overwrites_for(member)
-    text_perms.read_messages = False
-    await text_channel.set_permissions(member, overwrite=text_perms)
+@client.command(help="Add someone new to a particular team\nAdding Someone New: `add`, `a`, `+`\nRemoving Someone from a team: `remove`, `rem`, `r`, `-`")
+@commands.has_role(942775012983717948)  #TODO: Change to Cordinator Role
+async def alter(ctx, flag, member: discord.Member, team_role: discord.Role):
+    if flag in ['add', 'a', '+']:
+        if team_role in member.roles:
+            raise exceptions.BrokenRequest(message=f"{member.display_name} is already part of the team")
+        else:
+            role_register = discord.utils.get(ctx.guild.roles, name="Registered")
+            await member.add_roles(team_role)
+            await member.add_roles(role_register)
+            mongo_db_functions.teams.update_one({"_id": team_role.name.lower()}, {"$push": {"member_id": member.id}})
+            await ctx.send(f"{member.display_name} added to {team_role.name}")
+    elif flag in ['remove', 'rem', 'r', '-']:
+        if team_role not in member.roles:
+            raise exceptions.BrokenRequest(message=f"{member.display_name} is not part of this team")
+        else:
+            role_register = discord.utils.get(ctx.guild.roles, name="Registered")
+            await member.remove_roles(team_role)
+            await member.remove_roles(role_register)
+            mongo_db_functions.teams.update_one({"_id": team_role.name.lower()}, {"$pull": {"member_id": member.id}})
+            await ctx.send(f"{member.display_name} removed from {team_role.name}")
+    else:
+        raise exceptions.BrokenRequest(message="Incorrect Usage of `Flag` please use the flags mentioned in the help command.")
 
-    voice_channel = client.get_channel(channel_list[1])
-    voice_perms = voice_channel.overwrites_for(member)
-    voice_perms.read_messages = False
-    await voice_channel.set_permissions(member, overwrite=voice_perms)
-    mongo_db_functions.member_delta(leader=ctx.author.id, member_id=member.id, delta=-1)
+
+@client.command(help='Download all data in the form of a CSV')  # DM send
+@commands.check(predicate=is_worker)
+async def download(ctx):
+    path = f"CSV_Storage/{ctx.author.display_name}-{int(datetime.datetime.now(datetime.timezone.utc).timestamp())}.csv"
+    wait_message = await ctx.send("Please wait...")
+    await asyncio.sleep(random.randint(1, 5))
+    with open(path, 'w') as csv:
+        all_data = list(mongo_db_functions.teams.find())
+        csv.write("Team Name,Members Seperated with Pipes,Role ID\n")
+        for item in all_data:
+            try:
+                csv.write(
+                    f"{item['_id']},{' | '.join(map(str, item['member_id']))},{str(item['role_id'])}\n")
+            except KeyError:
+                pass
+    await wait_message.delete()
+    await ctx.message.delete()
+    await ctx.author.send(file=discord.File(path))
+    os.remove(path)
 
 
 @client.command(help='Get Bot and Database Latency\nAccess: Everyone')
@@ -172,10 +195,6 @@ async def ping(ctx):
             colour=discord.Colour(0x63e916)
         )
     )
-
-
-async def is_worker(ctx):
-    return ctx.author.id in [664401331250921473, 438281883881701391]
 
 
 @client.command(aliases=['eval'], help='Owner Only Command for debugging')
