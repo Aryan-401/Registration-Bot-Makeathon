@@ -4,11 +4,11 @@ import datetime
 import io
 import os
 import random
-import pandas
 import textwrap
 import time
 import traceback
 from dotenv import load_dotenv
+from pandas import read_csv
 
 import discord
 from discord.ext import commands
@@ -19,7 +19,7 @@ import exceptions
 load_dotenv()
 import mongo_db_functions
 
-check_table = pandas.read_csv("entries.csv")
+check_table = read_csv("entries.csv")
 
 
 class CustomHelpCommand(commands.HelpCommand):
@@ -139,7 +139,8 @@ async def register(ctx, team_name: str, email_address: str):
             message="Email not found in database. If the issue persists please call an admin")
 
 
-@client.command(help="Add someone new to a particular team\nAdding Someone New: `add`, `a`, `+`\nRemoving Someone from a team: `remove`, `rem`, `r`, `-`")
+@client.command(help="Add someone new to a particular team\nAdding Someone New: `add`, `a`, `+`\nRemoving Someone "
+                     "from a team: `remove`, `rem`, `r`, `-`")
 @commands.has_role(942775012983717948)  #TODO: Change to Cordinator Role
 async def alter(ctx, flag, member: discord.Member, team_role: discord.Role):
     if flag in ['add', 'a', '+']:
