@@ -19,6 +19,7 @@ load_dotenv()
 import mongo_db_functions
 
 check_table = read_csv("entries.csv")
+print("Hi im up")
 
 
 class CustomHelpCommand(commands.HelpCommand):
