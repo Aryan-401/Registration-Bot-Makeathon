@@ -7,12 +7,12 @@ import random
 import textwrap
 import time
 import traceback
-from dotenv import load_dotenv
-from pandas import read_csv
 
 import discord
 from discord.ext import commands
 from discord.utils import get
+from dotenv import load_dotenv
+from pandas import read_csv
 
 import exceptions
 
@@ -117,8 +117,9 @@ async def register(ctx, team_name: str, email_address: str):
                 category = get(guild.categories, name='Channels')  # TODO: Change Category name
                 overwrites = {guild.default_role: discord.PermissionOverwrite(read_messages=False),
                               ctx.author: discord.PermissionOverwrite(read_messages=True),
-                              get(guild.roles, id=942775012983717948): discord.PermissionOverwrite(read_messages=True),  #TODO: Change ID to Coordinator role
-                              role: discord.PermissionOverwrite(read_messages=True)}
+                              get(guild.roles, id=942775012983717948): discord.PermissionOverwrite(read_messages=True),
+                              role: discord.PermissionOverwrite(
+                                  read_messages=True)}  # TODO: Change ID to Coordinator role
                 # Text channel
                 await guild.create_text_channel(team_name, overwrites=overwrites, category=category)
                 # Voice channel
@@ -141,7 +142,7 @@ async def register(ctx, team_name: str, email_address: str):
 
 @client.command(help="Add someone new to a particular team\nAdding Someone New: `add`, `a`, `+`\nRemoving Someone "
                      "from a team: `remove`, `rem`, `r`, `-`")
-@commands.has_role(942775012983717948)  #TODO: Change to Cordinator Role
+@commands.has_role(942775012983717948)  # TODO: Change to Cordinator Role
 async def alter(ctx, flag, member: discord.Member, team_role: discord.Role):
     if flag in ['add', 'a', '+']:
         if team_role in member.roles:
@@ -162,15 +163,14 @@ async def alter(ctx, flag, member: discord.Member, team_role: discord.Role):
             mongo_db_functions.teams.update_one({"_id": team_role.name.lower()}, {"$pull": {"member_id": member.id}})
             await ctx.send(f"{member.display_name} removed from {team_role.name}")
     else:
-        raise exceptions.BrokenRequest(message="Incorrect Usage of `Flag` please use the flags mentioned in the help command.")
+        raise exceptions.BrokenRequest(
+            message="Incorrect Usage of `Flag` please use the flags mentioned in the help command.")
 
 
 @client.command(help='Download all data in the form of a CSV')  # DM send
 @commands.check(predicate=is_worker)
 async def download(ctx):
     path = f"CSV_Storage/{ctx.author.display_name}-{int(datetime.datetime.now(datetime.timezone.utc).timestamp())}.csv"
-    wait_message = await ctx.send("Please wait...")
-    await asyncio.sleep(random.randint(1, 5))
     with open(path, 'w') as csv:
         all_data = list(mongo_db_functions.teams.find())
         csv.write("Team Name,Members Seperated with Pipes,Role ID\n")
@@ -180,7 +180,6 @@ async def download(ctx):
                     f"{item['_id']},{' | '.join(map(str, item['member_id']))},{str(item['role_id'])}\n")
             except KeyError:
                 pass
-    await wait_message.delete()
     await ctx.message.delete()
     await ctx.author.send(file=discord.File(path))
     os.remove(path)
@@ -192,7 +191,9 @@ async def ping(ctx):
     await ctx.send(
         embed=discord.Embed(
             title='You have been Ponged',
-            description=f'Bot Latency: {bot_latency}\nDatabase Latency: {mongo_db_functions.calculate_ping()[0]}\nWrite Latency [MongoDB]: {mongo_db_functions.calculate_ping()[1]}\nRead Latency [MongoDB]: {mongo_db_functions.calculate_ping()[2]}',
+            description=f'Bot Latency: {bot_latency}\nDatabase Latency: {mongo_db_functions.calculate_ping()[0]}\n'
+                        f'Write Latency [MongoDB]: {mongo_db_functions.calculate_ping()[1]}\nRead Latency [MongoDB]: '
+                        f'{mongo_db_functions.calculate_ping()[2]}',
             colour=discord.Colour(0x63e916)
         )
     )

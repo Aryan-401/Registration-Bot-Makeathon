@@ -1,7 +1,9 @@
 from os import getenv
 from time import time
-import exceptions
+
 from pymongo import MongoClient, errors
+
+import exceptions
 
 MONGO_PASSWORD = getenv("MONGO_PASSWORD")
 
