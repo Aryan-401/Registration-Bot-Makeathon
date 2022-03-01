@@ -1,11 +1,12 @@
 from os import getenv
 from time import time
+import os
 
 from pymongo import MongoClient, errors
 
 import exceptions
 
-MONGO_PASSWORD = getenv("MONGO_PASSWORD")
+MONGO_PASSWORD = os.environ.get("MONGO_PASSWORD")
 
 cluster = MongoClient(
     f"mongodb+srv://Makeathon:{MONGO_PASSWORD}@cluster0.ufg1w.mongodb.net/myFirstDatabase?retryWrites=true&w=majority")

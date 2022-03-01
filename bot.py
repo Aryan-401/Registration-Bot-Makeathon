@@ -1,4 +1,3 @@
-import asyncio
 import contextlib
 import datetime
 import io
@@ -267,4 +266,4 @@ async def on_command_error(ctx, error):
     await ctx.message.channel.send(embed=embed)
 
 
-client.run(os.getenv("TOKEN"))
+client.run(os.environ.get('TOKEN'))
